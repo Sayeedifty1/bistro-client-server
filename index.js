@@ -1,11 +1,30 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const port = process.env.PORT || 5000;
-// middleware
+//! middleware
 app.use(cors());
 app.use(express.json());
+
+// ! verify Jwt token
+const verifyToken = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ error: true, message: "Unauthorized access" });
+    }
+
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(403).send({ error: true, message: "Forbidden access" });
+        }
+        req.decoded = decoded;
+        next();
+    });
+}
+
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nsyuaxc.mongodb.net/?retryWrites=true&w=majority`;
@@ -28,6 +47,14 @@ async function run() {
         const menuCollection = client.db("bistroDb").collection("menu");
         const reviewCollection = client.db("bistroDb").collection("reviews");
         const cartCollection = client.db("bistroDb").collection("carts");
+
+        // ! JWT token for user post method
+        app.post('/jwt', (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+            res.send({ token });
+        });
+
 
         // !user related Apis
         app.post('/users', async (req, res) => {
@@ -73,12 +100,19 @@ async function run() {
             const result = await reviewCollection.find({}).toArray();
             res.send(result);
         });
-        //! cart collection api
-        app.get('/carts', async (req, res) => {
+        // cart collection apis
+        app.get('/carts', verifyToken, async (req, res) => {
             const email = req.query.email;
+
             if (!email) {
                 res.send([]);
             }
+
+            const decodedEmail = req.decoded.email;
+            if (email !== decodedEmail) {
+                return res.status(403).send({ error: true, message: 'porviden access' })
+            }
+
             const query = { email: email };
             const result = await cartCollection.find(query).toArray();
             res.send(result);
