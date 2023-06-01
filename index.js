@@ -55,7 +55,7 @@ async function run() {
             res.send({ token })
         })
 
-        // Warning: use verifyJWT before using verifyAdmin
+        // Warning: use verifyJWT before using verifyAdmin from db
         const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email;
             const query = { email: email }
@@ -132,6 +132,15 @@ async function run() {
             const result = await menuCollection.find({}).toArray();
             res.send(result);
         });
+
+        // posting new data to the menu collection from admin , secure by jwt and verifyAdmin
+        // add verifyJWT, verifyAdmin, for security
+        app.post('/menu',verifyJWT, verifyAdmin, async (req, res) => {
+            const newItem = req.body;
+            const result = await menuCollection.insertOne(newItem);
+            res.send(result);
+        })
+
         // !review related Apis
         // get all review
         app.get('/reviews', async (req, res) => {
