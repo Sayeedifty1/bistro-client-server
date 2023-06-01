@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 // ! verify Jwt token
-const verifyToken = (req, res, next) => {
+const verifyJWT = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
         return res.status(401).send({ error: true, message: "Unauthorized access" });
@@ -48,75 +48,82 @@ async function run() {
         const reviewCollection = client.db("bistroDb").collection("reviews");
         const cartCollection = client.db("bistroDb").collection("carts");
 
-        // ! JWT token for user post method
         app.post('/jwt', (req, res) => {
             const user = req.body;
-            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
-            res.send({ token });
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
+
+            res.send({ token })
+        })
+
+        // Warning: use verifyJWT before using verifyAdmin
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email: email }
+            const user = await userCollection.findOne(query);
+            if (user?.role !== 'admin') {
+                return res.status(403).send({ error: true, message: 'forbidden message' });
+            }
+            next();
+        }
+
+        /**
+         * 0. do not show secure links to those who should not see the links
+         * 1. use jwt token: verifyJWT
+         * 2. use verifyAdmin middleware
+        */
+
+        // users related apis
+        app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
+            const result = await userCollection.find().toArray();
+            res.send(result);
         });
 
-         // Warning: use verifyJWT before using verifyAdmin
-    const verifyAdmin = async (req, res, next) => {
-        const email = req.decoded.email;
-        const query = { email: email }
-        const user = await userCollection.findOne(query);
-        if (user?.role !== 'admin') {
-          return res.status(403).send({ error: true, message: 'forbidden message' });
-        }
-        next();
-      }
-        
-      // users related apis
-    app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-        const result = await userCollection.find().toArray();
-        res.send(result);
-      });
-  
-      app.post('/users', async (req, res) => {
-        const user = req.body;
-        const query = { email: user.email }
-        const existingUser = await userCollection.findOne(query);
-  
-        if (existingUser) {
-          return res.send({ message: 'user already exists' })
-        }
-  
-        const result = await userCollection.insertOne(user);
-        res.send(result);
-      });
-  
-      // security layer: verifyJWT
-      // email same
-      // check admin
-      app.get('/users/admin/:email', verifyToken, async (req, res) => {
-        const email = req.params.email;
-  
-        if (req.decoded.email !== email) {
-          res.send({ admin: false })
-        }
-  
-        const query = { email: email }
-        const user = await userCollection.findOne(query);
-        const result = { admin: user?.role === 'admin' }
-        res.send(result);
-      })
-  
-      app.patch('/users/admin/:id', async (req, res) => {
-        const id = req.params.id;
-        console.log(id);
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = {
-          $set: {
-            role: 'admin'
-          },
-        };
-  
-        const result = await userCollection.updateOne(filter, updateDoc);
-        res.send(result);
-  
-      })
-  
-        
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            const query = { email: user.email }
+            const existingUser = await userCollection.findOne(query);
+
+            if (existingUser) {
+                return res.send({ message: 'user already exists' })
+            }
+
+            const result = await userCollection.insertOne(user);
+            res.send(result);
+        });
+
+        // security layer: verifyJWT
+        // email same
+        // check admin
+        app.get('/users/admin/:email', verifyJWT, async (req, res) => {
+            const email = req.params.email;
+
+            if (req.decoded.email !== email) {
+                res.send({ admin: false })
+            }
+
+            const query = { email: email }
+            const user = await userCollection.findOne(query);
+            const result = { admin: user?.role === 'admin' }
+            res.send(result);
+        })
+
+        app.patch('/users/admin/:id', async (req, res) => {
+            const id = req.params.id;
+            console.log(id);
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    role: 'admin'
+                },
+            };
+
+            const result = await userCollection.updateOne(filter, updateDoc);
+            res.send(result);
+
+        })
+
+
+
 
 
         // ! Menu related Apis
@@ -132,7 +139,7 @@ async function run() {
             res.send(result);
         });
         // cart collection apis
-        app.get('/carts', verifyToken,verifyAdmin, async (req, res) => {
+        app.get('/carts', verifyJWT,  async (req, res) => {
             const email = req.query.email;
 
             if (!email) {
