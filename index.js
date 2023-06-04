@@ -138,13 +138,13 @@ async function run() {
 
         // posting new data to the menu collection from admin , secure by jwt and verifyAdmin
         // add verifyJWT, verifyAdmin, for security
-        app.post('/menu',verifyJWT, verifyAdmin, async (req, res) => {
+        app.post('/menu', verifyJWT, verifyAdmin, async (req, res) => {
             const newItem = req.body;
             const result = await menuCollection.insertOne(newItem);
             res.send(result);
         })
         // deleting a menu item
-        app.delete('/menu/:id',verifyJWT, verifyAdmin, async (req, res) => {
+        app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await menuCollection.deleteOne(query);
@@ -158,7 +158,7 @@ async function run() {
             res.send(result);
         });
         // cart collection apis
-        app.get('/carts', verifyJWT,  async (req, res) => {
+        app.get('/carts', verifyJWT, async (req, res) => {
             const email = req.query.email;
 
             if (!email) {
@@ -199,19 +199,19 @@ async function run() {
         });
 
         // create payment intent
-        app.post('/create-payment-intent',verifyJWT, async (req, res) => {
-        const {price} = req.body;
-        
-        const amount = price * 100;
-        console.log(price , amount)
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: amount,
-            currency: "usd",
-            payment_method_types: ["card"],
-        });
-        res.send({
-            clientSecret: paymentIntent.client_secret,
-        });
+        app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+            const { price } = req.body;
+
+            const amount = parseInt(price * 100);
+            console.log(price, amount)
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                payment_method_types: ["card"],
+            });
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
 
         })
         // to store payment info in db
@@ -220,12 +220,58 @@ async function run() {
             const InsertResult = await paymentCollection.insertOne(payment);
             console.log(payment.cartItems)
             // delete cart items
-            const query = { _id: {$in: payment.cartItems.map(id=> new ObjectId(id))}}
+            const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } }
             const deleteResult = await cartCollection.deleteMany(query);
 
-            res.send({ InsertResult , deleteResult});
+            res.send({ InsertResult, deleteResult });
+        });
+        // get admin-stats
+        app.get('/admin-stats', verifyJWT, verifyAdmin, async (req, res) => {
+            const user = await userCollection.estimatedDocumentCount();
+            const products = await menuCollection.estimatedDocumentCount();
+            const orders = await paymentCollection.estimatedDocumentCount();
+
+            // best way to get sum of the price field is to use group and sum operator  in mongodb
+            const payments = await paymentCollection.find().toArray();
+            const revenue = payments.reduce((sum, payment) => sum + payment.price, 0);
+
+            res.send({ user, products, orders, revenue });
         });
 
+        // 
+        app.get('/order-stats', verifyJWT, verifyAdmin, async (req, res) => {
+            const pipeline = [
+              {
+                $lookup: {
+                  from: 'menu',
+                  localField: 'menuItem',
+                  foreignField: '_id',
+                  as: 'menuItemsData'
+                }
+              },
+              {
+                $unwind: '$menuItemsData'
+              },
+              {
+                $group: {
+                  _id: '$menuItemsData.category',
+                  count: { $sum: 1 },
+                  total: { $sum: '$menuItemsData.price' }
+                }
+              },
+              {
+                $project: {
+                  category: '$_id',
+                  count: 1,
+                  total: { $round: ['$total', 2] },
+                  _id: 0
+                }
+              }
+            ];
+      
+            const result = await paymentCollection.aggregate(pipeline).toArray();
+            res.send(result);
+          });
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
